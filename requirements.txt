@@ -1,0 +1,6 @@
+httpx
+beautifulsoup4
+pydantic
+pillow
+python-dotenv
+pytesseract
