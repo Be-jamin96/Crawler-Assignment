@@ -7,6 +7,9 @@ A password-hunting web crawler with two ways to run it:
 
 The two are decoupled: `gui/` imports `crawler/`, never the reverse. The crawler works identically with or without the GUI attached.
 
+# Getting started: 
+I would highly recommend setting the .env variables first - this will save you hassle with the copy/paste restricted GUI and will be necessary regardless of setup. Simply create a copy of `.env.example` as `.env` and complete the required fields locally in your own editor.
+
 ## Running with Docker (recommended)
 
 Requires Docker and Docker Compose.
