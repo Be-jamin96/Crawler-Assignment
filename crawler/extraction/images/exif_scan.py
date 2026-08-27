@@ -21,7 +21,9 @@ def scan_exif(file_path: str, source_url: str) -> list[PasswordHit]:
             ["exiftool", file_path], capture_output=True, text=True, timeout=30
         )
     except FileNotFoundError:
-        logger.error("exiftool binary not found on PATH — skipping exif_scan for %s", file_path)
+        logger.error(
+            "exiftool binary not found on PATH — skipping exif_scan for %s", file_path
+        )
         return hits
     except subprocess.TimeoutExpired:
         logger.error("exiftool timed out for %s", file_path)
@@ -32,9 +34,20 @@ def scan_exif(file_path: str, source_url: str) -> list[PasswordHit]:
         field_name = match.group(1).strip() if match else "exiftool_stdout"
         passwords = find_passwords(line)
         for p in passwords:
-            logger.info("Password found: %s via method=exiftool location=%s url=%s", p, field_name, source_url)
+            logger.info(
+                "Password found: %s via method=exiftool location=%s url=%s",
+                p,
+                field_name,
+                source_url,
+            )
             hits.append(
-                PasswordHit(password=p, source_url=source_url, method="exiftool", location=field_name, payload_type="image")
+                PasswordHit(
+                    password=p,
+                    source_url=source_url,
+                    method="exiftool",
+                    location=field_name,
+                    payload_type="image",
+                )
             )
 
     logger.info("exif_scan complete for %s: %d hit(s)", file_path, len(hits))

@@ -1,6 +1,7 @@
-httpx
+httpx[socks]
 beautifulsoup4
 pydantic
 pillow
 python-dotenv
 pytesseract
+dearpygui

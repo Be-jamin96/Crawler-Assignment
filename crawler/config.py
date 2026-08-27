@@ -19,6 +19,10 @@ class CrawlerConfig:
     request_timeout: float = 10.0
     download_dir: str = "downloaded_images"
     log_level: str = "INFO"
+    # Polite delay (seconds), randomized between 0 and this value and applied
+    # before each request — slows the crawl down so its live GUI view reads
+    # smoothly instead of finishing instantly. 0 disables it.
+    request_delay: float = 0.0
     # Optional proxy (e.g. "http://user:pass@host:port") used only to retry
     # requests that come back geo-blocked. If unset, geo-blocked pages are
     # skipped and flagged in the final report instead of fetched.

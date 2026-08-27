@@ -36,7 +36,9 @@ _STRATEGIES = [
 ]
 
 
-async def parse_image(response: httpx.Response, page_url: str, config: CrawlerConfig) -> list[PasswordHit]:
+async def parse_image(
+    response: httpx.Response, page_url: str, config: CrawlerConfig
+) -> list[PasswordHit]:
     """Download the image and run each analysis strategy independently, so one
     failing strategy (e.g. exiftool missing) can't suppress the others' results."""
     save_path = _save_image(response, config.download_dir)
@@ -50,7 +52,13 @@ async def parse_image(response: httpx.Response, page_url: str, config: CrawlerCo
         try:
             hits.extend(strategy(save_path, source_url))
         except Exception as e:
-            logger.error("Image strategy '%s' failed for %s: %s", name, save_path, e, exc_info=True)
+            logger.error(
+                "Image strategy '%s' failed for %s: %s",
+                name,
+                save_path,
+                e,
+                exc_info=True,
+            )
 
     logger.info("parse_image complete for %s: %d total hit(s)", save_path, len(hits))
     return hits

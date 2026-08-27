@@ -11,7 +11,9 @@ PAGINATION_PATTERN = re.compile(r"page=(\d+)")
 
 def is_depth_exceeded(payload: QueuePayload, config: CrawlerConfig) -> bool:
     if payload.depth is not None and payload.depth >= config.depth_cutoff:
-        logger.info("Depth cutoff reached (depth=%s) for %s", payload.depth, payload.url)
+        logger.info(
+            "Depth cutoff reached (depth=%s) for %s", payload.depth, payload.url
+        )
         return True
     return False
 

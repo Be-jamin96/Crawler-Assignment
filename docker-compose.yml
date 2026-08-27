@@ -1,0 +1,41 @@
+services:
+  # Virtual X display + VNC server + web-based noVNC client, all in one.
+  # The `gui` service below renders into this display over the network;
+  # the evaluator watches/interacts with it through a browser tab.
+  novnc:
+    image: theasp/novnc:latest
+    environment:
+      - DISPLAY_WIDTH=1400
+      - DISPLAY_HEIGHT=850
+      - RUN_XTERM=no
+    ports:
+      - "6080:8080"
+
+  # Fun-spy GUI: node graph + password list + credentials form.
+  # Open http://localhost:6080/vnc.html in a browser after `docker compose up`.
+  gui:
+    build: .
+    command: python -m gui
+    environment:
+      - DISPLAY=novnc:0.0
+    # Optional: if .env exists, its VP_* values pre-fill the form (handy since
+    # you can't paste into the GUI over VNC). Not required to launch the GUI.
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      - novnc
+    # The entrypoint script (docker/entrypoint.sh) waits for novnc's Xvfb to
+    # start accepting connections before launching the GUI, so this is just a
+    # safety net for any other startup hiccup, not the primary fix.
+    restart: on-failure
+
+  # Headless CLI crawl (no GUI) — reads credentials/config from .env, same as
+  # running `python -m crawler.main` locally. Run on demand:
+  #   docker compose run --rm crawler
+  crawler:
+    build: .
+    command: python -m crawler.main
+    env_file: .env
+    profiles:
+      - cli

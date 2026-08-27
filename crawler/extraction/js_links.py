@@ -25,5 +25,9 @@ def extract_js_link_refs(js_text: str, script_url: str) -> list[QueuePayload]:
         payloads.append(QueuePayload(url=resolved, type="page", parent=script_url))
 
     if payloads:
-        logger.debug("extract_js_link_refs: found %d JS-embedded link ref(s) in %s", len(payloads), script_url)
+        logger.debug(
+            "extract_js_link_refs: found %d JS-embedded link ref(s) in %s",
+            len(payloads),
+            script_url,
+        )
     return payloads

@@ -12,7 +12,9 @@ logger = logging.getLogger(__name__)
 _CHAR_CODE_ARRAY = re.compile(r"\[\s*\d+(?:\s*,\s*\d+){14,}\s*\]")
 
 
-def scan_char_code_arrays(text: str, source_url: str, payload_type: AssetType) -> list[PasswordHit]:
+def scan_char_code_arrays(
+    text: str, source_url: str, payload_type: AssetType
+) -> list[PasswordHit]:
     """Find JS numeric-array literals, decode them as char codes, and check
     the decoded text for a password (e.g. a `String.fromCharCode(...)` beacon)."""
     hits: list[PasswordHit] = []
@@ -28,11 +30,18 @@ def scan_char_code_arrays(text: str, source_url: str, payload_type: AssetType) -
 
         passwords = find_passwords(decoded)
         for p in passwords:
-            logger.info("Password found: %s via method=js_char_code_array location=decoded_array url=%s", p, source_url)
+            logger.info(
+                "Password found: %s via method=js_char_code_array location=decoded_array url=%s",
+                p,
+                source_url,
+            )
             hits.append(
                 PasswordHit(
-                    password=p, source_url=source_url, method="js_char_code_array",
-                    location="decoded_array", payload_type=payload_type,
+                    password=p,
+                    source_url=source_url,
+                    method="js_char_code_array",
+                    location="decoded_array",
+                    payload_type=payload_type,
                 )
             )
 

@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import queue as queue_module
+import random
 from typing import Optional
 
 import httpx
@@ -8,6 +10,8 @@ from crawler.config import CrawlerConfig
 from crawler.engine.dispatch import dispatch_payload
 from crawler.engine.geo import detect_geo_block
 from crawler.engine.guards import is_depth_exceeded, is_pagination_trap
+from crawler.events import NodeEvent, NodeState, emit
+from crawler.extraction.patterns import normalize
 from crawler.models import GeoBlock, QueuePayload
 from crawler.reporting.geo_blocks import GeoBlockRegistry
 from crawler.reporting.store import PasswordStore
@@ -26,6 +30,7 @@ async def worker(
     config: CrawlerConfig,
     proxy_client: Optional[httpx.AsyncClient] = None,
     geo_blocks: Optional[GeoBlockRegistry] = None,
+    event_bus: "Optional[queue_module.Queue[NodeEvent]]" = None,
 ) -> None:
     while not stop_event.is_set():
         try:
@@ -43,54 +48,190 @@ async def worker(
             # Claim immediately so other workers skip it while we process it.
             visited.add(payload.url)
 
-            if is_depth_exceeded(payload, config) or is_pagination_trap(payload.url, config):
+            if is_depth_exceeded(payload, config) or is_pagination_trap(
+                payload.url, config
+            ):
                 continue
 
-            logger.info("[worker %d] Fetching %s: %s", worker_id, payload.type, payload.url)
-            response = await client.get(payload.url, follow_redirects=True, timeout=config.request_timeout)
+            if config.request_delay > 0:
+                await asyncio.sleep(random.uniform(0, config.request_delay))
+
+            logger.info(
+                "[worker %d] Fetching %s: %s", worker_id, payload.type, payload.url
+            )
+            emit(
+                event_bus,
+                NodeEvent(
+                    url=payload.url,
+                    type=payload.type,
+                    state=NodeState.PROCESSING,
+                    parent=payload.parent,
+                ),
+            )
+            response = await client.get(
+                payload.url, follow_redirects=True, timeout=config.request_timeout
+            )
 
             if response.status_code != 200:
                 required_region = detect_geo_block(response)
                 if required_region is not None:
                     if proxy_client is not None:
-                        logger.info("[worker %d] Geo-blocked (%s), retrying via proxy: %s", worker_id, required_region, payload.url)
-                        response = await proxy_client.get(payload.url, follow_redirects=True, timeout=config.request_timeout)
+                        logger.info(
+                            "[worker %d] Geo-blocked (%s), retrying via proxy: %s",
+                            worker_id,
+                            required_region,
+                            payload.url,
+                        )
+                        response = await proxy_client.get(
+                            payload.url,
+                            follow_redirects=True,
+                            timeout=config.request_timeout,
+                        )
                         if response.status_code != 200:
-                            logger.error("[worker %d] Proxy retry still failed (%d) for %s", worker_id, response.status_code, payload.url)
+                            logger.error(
+                                "[worker %d] Proxy retry still failed (%d) for %s",
+                                worker_id,
+                                response.status_code,
+                                payload.url,
+                            )
+                            emit(
+                                event_bus,
+                                NodeEvent(
+                                    url=payload.url,
+                                    type=payload.type,
+                                    state=NodeState.FAILED,
+                                    parent=payload.parent,
+                                ),
+                            )
                             visited.discard(payload.url)
                             continue
                         # fall through to normal 200-path processing below
                     else:
                         if geo_blocks is not None:
-                            geo_blocks.add(GeoBlock(page_url=payload.url, required_region=required_region))
+                            geo_blocks.add(
+                                GeoBlock(
+                                    page_url=payload.url,
+                                    required_region=required_region,
+                                )
+                            )
+                        emit(
+                            event_bus,
+                            NodeEvent(
+                                url=payload.url,
+                                type=payload.type,
+                                state=NodeState.FAILED,
+                                parent=payload.parent,
+                            ),
+                        )
                         visited.discard(payload.url)
                         continue
                 else:
-                    logger.warning("[worker %d] Failed %s with status %d", worker_id, payload.url, response.status_code)
+                    logger.warning(
+                        "[worker %d] Failed %s with status %d",
+                        worker_id,
+                        payload.url,
+                        response.status_code,
+                    )
+                    emit(
+                        event_bus,
+                        NodeEvent(
+                            url=payload.url,
+                            type=payload.type,
+                            state=NodeState.FAILED,
+                            parent=payload.parent,
+                        ),
+                    )
                     visited.discard(payload.url)
                     continue
 
             state["processed"] += 1
-            logger.info("[worker %d] Processed %d/%d: %s", worker_id, state["processed"], config.max_processed, payload.url)
+            logger.info(
+                "[worker %d] Processed %d/%d: %s",
+                worker_id,
+                state["processed"],
+                config.max_processed,
+                payload.url,
+            )
 
             if state["processed"] >= config.max_processed:
-                logger.info("Processed-item cap (%d) reached, signaling workers to stop", config.max_processed)
+                logger.info(
+                    "Processed-item cap (%d) reached, signaling workers to stop",
+                    config.max_processed,
+                )
                 stop_event.set()
                 break
 
             hits, new_payloads = await dispatch_payload(payload, response, config)
             password_store.add_all(hits)
 
+            emit(
+                event_bus,
+                NodeEvent(
+                    url=payload.url,
+                    type=payload.type,
+                    state=NodeState.PROCESSED,
+                    parent=payload.parent,
+                ),
+            )
+            qualified_now = password_store.unique_passwords()
+            for hit in hits:
+                if normalize(hit.password) in qualified_now:
+                    emit(
+                        event_bus,
+                        NodeEvent(
+                            url=payload.url,
+                            type=payload.type,
+                            state=NodeState.PASSWORD_FOUND,
+                            parent=payload.parent,
+                            hit=hit,
+                        ),
+                    )
+
             for new_payload in new_payloads:
                 new_payload.depth = (payload.depth or 0) + 1
                 if new_payload.url not in visited and not stop_event.is_set():
+                    emit(
+                        event_bus,
+                        NodeEvent(
+                            url=new_payload.url,
+                            type=new_payload.type,
+                            state=NodeState.DISCOVERED,
+                            parent=new_payload.parent,
+                        ),
+                    )
                     await queue.put(new_payload)
 
         except httpx.RequestError as e:
-            logger.error("[worker %d] Network error for %s: %s", worker_id, payload.url, e)
+            logger.error(
+                "[worker %d] Network error for %s: %s", worker_id, payload.url, e
+            )
+            emit(
+                event_bus,
+                NodeEvent(
+                    url=payload.url,
+                    type=payload.type,
+                    state=NodeState.FAILED,
+                    parent=payload.parent,
+                ),
+            )
             visited.discard(payload.url)
         except Exception as e:
-            logger.error("[worker %d] Unexpected error for %s: %s", worker_id, payload.url, e, exc_info=True)
+            logger.error(
+                "[worker %d] Unexpected error for %s: %s",
+                worker_id,
+                payload.url,
+                e,
+                exc_info=True,
+            )
+            emit(
+                event_bus,
+                NodeEvent(
+                    url=payload.url,
+                    type=payload.type,
+                    state=NodeState.FAILED,
+                    parent=payload.parent,
+                ),
+            )
             visited.discard(payload.url)
         finally:
             queue.task_done()
